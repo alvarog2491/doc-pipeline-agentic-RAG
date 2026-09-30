@@ -1,0 +1,328 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Doc Pipeline Agentic RAG",
+    "output": "architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "chat-path",
+        "label": "Chat path",
+        "focus": [
+          "users",
+          "cf",
+          "api",
+          "gw",
+          "rt",
+          "kb",
+          "llm"
+        ],
+        "note": "A question streams from the browser to the agent and back as server-sent events."
+      },
+      {
+        "id": "ingestion",
+        "label": "PDF ingestion",
+        "focus": [
+          "users",
+          "s3",
+          "ingest",
+          "kb",
+          "reg"
+        ],
+        "note": "The browser uploads straight to S3; the PDF becomes its own Knowledge Base and a registry entry."
+      },
+      {
+        "id": "observability",
+        "label": "Tracing",
+        "focus": [
+          "rt",
+          "lf"
+        ],
+        "note": "Every agent run is traced in Langfuse."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "frontend",
+      "label": "User",
+      "sublabel": "React: upload + chat",
+      "pos": [
+        40,
+        100
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "cf",
+      "type": "cloud",
+      "label": "CloudFront",
+      "sublabel": "HTTPS, no buffering",
+      "pos": [
+        250,
+        100
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI on ECS",
+      "sublabel": "REST + SSE",
+      "pos": [
+        450,
+        100
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "gw",
+      "type": "cloud",
+      "label": "AgentCore Gateway",
+      "sublabel": "SigV4, control target",
+      "pos": [
+        660,
+        100
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "reg",
+      "type": "database",
+      "label": "DynamoDB",
+      "sublabel": "status: indexing, ready",
+      "pos": [
+        450,
+        280
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "rt",
+      "type": "backend",
+      "label": "LangGraph agent",
+      "sublabel": "easy / hard / guide",
+      "pos": [
+        660,
+        280
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "AgentCore Runtime"
+    },
+    {
+      "id": "llm",
+      "type": "cloud",
+      "label": "Bedrock models",
+      "sublabel": "router + answers",
+      "pos": [
+        880,
+        280
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "s3",
+      "type": "cloud",
+      "label": "S3 uploads/",
+      "sublabel": "private PDFs, CORS for the UI",
+      "pos": [
+        40,
+        460
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "Ingestion Lambdas",
+      "sublabel": "Textract, staging, status check",
+      "pos": [
+        250,
+        460
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "kb",
+      "type": "database",
+      "label": "Knowledge Base per PDF",
+      "sublabel": "Bedrock chunks + embeds, S3 Vectors",
+      "pos": [
+        470,
+        460
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "lf",
+      "type": "external",
+      "label": "Langfuse",
+      "sublabel": "traces + experiments",
+      "pos": [
+        880,
+        460
+      ],
+      "size": [
+        150,
+        64
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "users-cf",
+      "from": "users",
+      "to": "cf",
+      "label": "chat",
+      "variant": "emphasis"
+    },
+    {
+      "id": "cf-api",
+      "from": "cf",
+      "to": "api",
+      "label": "SSE",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-gw",
+      "from": "api",
+      "to": "gw",
+      "label": "invoke",
+      "variant": "emphasis"
+    },
+    {
+      "id": "gw-rt",
+      "from": "gw",
+      "to": "rt",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "api-reg",
+      "from": "api",
+      "to": "reg",
+      "label": "list docs",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "rt-llm",
+      "from": "rt",
+      "to": "llm",
+      "label": "invoke"
+    },
+    {
+      "id": "rt-kb",
+      "from": "rt",
+      "to": "kb",
+      "label": "Retrieve",
+      "fromSide": "bottom",
+      "toSide": "right"
+    },
+    {
+      "id": "rt-lf",
+      "from": "rt",
+      "to": "lf",
+      "label": "traces",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "users-s3",
+      "from": "users",
+      "to": "s3",
+      "label": "presigned upload",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "s3-ingest",
+      "from": "s3",
+      "to": "ingest",
+      "label": "trigger",
+      "variant": "dashed"
+    },
+    {
+      "id": "ingest-kb",
+      "from": "ingest",
+      "to": "kb",
+      "label": "ingest",
+      "variant": "dashed"
+    },
+    {
+      "id": "ingest-reg",
+      "from": "ingest",
+      "to": "reg",
+      "label": "status",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "left"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Ingestion",
+      "items": [
+        "Browser uploads via a presigned S3 POST (PDF only)",
+        "Textract layout + tables, one Markdown file per page",
+        "Bedrock chunks and embeds; a scheduled check marks it ready"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Agent",
+      "items": [
+        "Router picks easy, hard or guide",
+        "Guide subagents run in parallel",
+        "Answers cite excerpts as page links"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Delivery",
+      "items": [
+        "Terraform for every resource",
+        "Production releases A/B tested by the release gate",
+        "Scores are deterministic, no LLM judge"
+      ]
+    }
+  ]
+}
