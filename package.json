@@ -1,0 +1,20 @@
+{
+  "name": "doc-pipeline-agentic-rag",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "test": "pnpm -r test",
+    "sync-dev": "node scripts/local/sync-dev-endpoints.mjs"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "overrides": {
+      "vite": "^7.3.6"
+    }
+  }
+}

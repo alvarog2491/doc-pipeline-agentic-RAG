@@ -1,0 +1,9 @@
+{
+  "name": "@doc-pipeline/config-ts",
+  "version": "0.0.1",
+  "private": true,
+  "exports": {
+    "./tsconfig.json": "./tsconfig.base.json"
+  },
+  "files": ["tsconfig.base.json"]
+}

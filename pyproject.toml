@@ -1,0 +1,20 @@
+# uv workspace root. The Python apps under apps/ resolve against this single lockfile
+# (./uv.lock) and share one environment (./.venv), as pnpm-workspace.yaml does for the
+# JS packages. One lockfile is one resolution: a dependency shared by two members is
+# pinned to the same version in both.
+#
+#   uv sync --all-packages              every member, editable, into ./.venv
+#   uv sync --package <name>            one member's dependency closure only
+#   uv run --package <name> <command>   run a command in a member's context
+
+[tool.uv.workspace]
+members = ["apps/agents", "apps/api", "apps/ingestion", "apps/online-evaluators"]
+
+# Workspace-level dev tooling. The group is named "dev" because uv installs that group
+# by default; naming any group in tool.uv.default-groups replaces that default and drops
+# the members' own dev groups. Container images pass --no-default-groups.
+[dependency-groups]
+dev = [
+    # Jupyter kernel for the notebooks under apps/agents/.
+    "ipykernel>=7.0.0",
+]
