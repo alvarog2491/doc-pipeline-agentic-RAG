@@ -1,0 +1,52 @@
+/* DocPipeline visual tokens */
+:root {
+  --color-brand: oklch(35.4% 0.118 268.5);
+  --color-accent-ink: oklch(100% 0 0);
+  --color-brand-strong: oklch(29% 0.105 269);
+  --color-brand-soft: oklch(92.5% 0.03 206);
+  --color-brand-mist: oklch(97.4% 0.014 219);
+  --color-paper: var(--color-accent-ink);
+  --color-canvas: oklch(98.2% 0.009 225);
+  --color-ink: oklch(24% 0.032 267);
+  --color-ink-muted: oklch(51% 0.026 260);
+  --color-line: oklch(89% 0.016 241);
+  --color-line-strong: oklch(76% 0.035 241);
+  --color-focus: oklch(61% 0.16 243);
+  --color-error: oklch(52% 0.19 27);
+  --color-disabled: oklch(88% 0.01 250);
+  --color-disabled-ink: oklch(58% 0.02 255);
+  --color-shadow: oklch(25% 0.055 265 / 9%);
+  --color-brand-wash: oklch(92.5% 0.03 206 / 58%);
+  --color-transparent: oklch(100% 0 0 / 0%);
+
+  --font-body: "Nunito Local", "Nunito", ui-rounded, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 1rem;
+  --radius-pill: 999px;
+  --rule-hairline: 1px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+}

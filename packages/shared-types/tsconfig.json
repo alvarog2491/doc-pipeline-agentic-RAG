@@ -1,0 +1,10 @@
+{
+  "extends": "@doc-pipeline/config-ts/tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

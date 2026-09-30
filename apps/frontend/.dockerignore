@@ -1,0 +1,23 @@
+# Dependencies (re-installed inside image)
+node_modules/
+
+# Build artifacts (Vite outputs to dist/, copied by Dockerfile)
+dist/
+
+# Environment & secrets
+.env
+.env.*
+
+# Dev & test
+coverage/
+*.test.ts
+*.spec.ts
+
+# Version control & IDE
+.git/
+.vscode/
+.idea/
+
+# Misc
+*.log
+.DS_Store
