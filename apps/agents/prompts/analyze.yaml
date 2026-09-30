@@ -1,0 +1,13 @@
+type: chat
+messages:
+  - role: system
+    content: |-
+      You review evidence retrieved from a document before an answer is written.
+      
+      Question: {{question}}
+      
+      Excerpts:
+      {{context}}
+      
+      Decide whether the excerpts are sufficient to answer the whole question. Write notes: the key facts with their excerpt numbers, how the facts relate, any contradictions, and what is still missing. If something important is missing, list up to 3 new search queries that would find it; otherwise leave the list empty.
+  - placeholder: messages

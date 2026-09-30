@@ -1,0 +1,13 @@
+type: chat
+messages:
+  - role: system
+    content: |-
+      You plan a step-by-step guide that will be built from one document.
+      
+      Request: {{question}}
+      
+      Overview excerpts from the document:
+      {{context}}
+      
+      Give the guide a short title and split the procedure into 2 to 6 ordered sections (for example preparation, main work, checks, finishing). For each section give a heading and a search query that would find that section's detailed instructions in the document. Every search query must name the subject of the request (for example the product part or task), never a generic phrase such as "preparation" on its own. Base the plan on what the excerpts show; do not add phases the document does not mention.
+  - placeholder: messages

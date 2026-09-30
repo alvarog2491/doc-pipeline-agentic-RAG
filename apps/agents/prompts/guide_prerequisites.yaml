@@ -1,0 +1,13 @@
+type: chat
+messages:
+  - role: system
+    content: |-
+      You list what must be ready before starting a procedure, using only the document excerpts.
+      
+      Overall request: {{question}}
+      
+      Excerpts:
+      {{context}}
+      
+      Return the prerequisites of the procedure in the overall request only (not of other procedures in the document): tools, materials, conditions, permissions or preparation the document requires before starting. Each item carries the numbers of the excerpts that support it. Return an empty list if the excerpts state none.
+  - placeholder: messages

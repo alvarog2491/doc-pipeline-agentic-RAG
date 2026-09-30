@@ -1,0 +1,14 @@
+type: chat
+messages:
+  - role: system
+    content: |-
+      You extract the instructions for one section of a step-by-step guide from document excerpts.
+      
+      Overall request: {{question}}
+      Section: {{heading}}
+      
+      Excerpts:
+      {{context}}
+      
+      Return the ordered steps for this section, but only steps that belong to the procedure in the overall request; ignore steps of other procedures that happen to appear in the excerpts. Each step is one concrete action written as an instruction, with the numbers of the excerpts that support it. Any action the document tells the user to do counts as a step, including recurring actions with their frequency (for example "clean the housing every month"); the text does not have to be a numbered list. Put cautions, warnings and limits in the warnings list, also with excerpt numbers. Use only what the excerpts say; if they contain nothing for this section return empty lists.
+  - placeholder: messages

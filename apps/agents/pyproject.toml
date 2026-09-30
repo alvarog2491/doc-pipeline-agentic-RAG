@@ -1,0 +1,70 @@
+[project]
+name = "DocPipelineAgent"
+version = "0.1.0"
+description = "LangGraph orchestrator on AgentCore Runtime that routes questions over an uploaded document's Knowledge Base to easy, hard-reasoning or step-by-step-guide workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph >= 1.0.2",
+    "mcp >= 1.28.1",
+    "langchain-mcp-adapters >= 0.3.1",
+    "langchain >= 1.3.9",
+    "bedrock-agentcore >= 1.8.0",
+    "aws-opentelemetry-distro >= 0.18.0",
+    "boto3 >= 1.35.0",
+    "botocore[crt] >= 1.35.0",
+    "langchain-aws >= 1.0.0",
+    "langfuse>=4.15.1",
+    "python-dotenv>=1.0.0",
+]
+
+# Not a package: the container and the tests both run this app from its own directory
+# (top-level module imports), so nothing ever imports it from an installed wheel. uv
+# installs the dependency closure and skips building the member itself.
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-asyncio>=1.0.0",
+    "pyyaml>=6.0",
+    "httpx>=0.28.1",
+    # evaluations/ tooling only: the deployed agent never imports it. openevals drives the
+    # simulated user in the multi-turn conversation experiment.
+    "openevals>=0.2.0",
+]
+
+# CI measures coverage with --cov=. so it covers every runtime module rather than one
+# package. These trees are excluded: tests exercise the app rather than being part of it,
+# and evaluations/ is offline tooling the served agent never loads, pulled in only because
+# tests reach into it. notebooks/ needs no entry - coverage never measures .ipynb.
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+omit = [
+    "tests/*",
+    "evaluations/*",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "citations",
+    "easy",
+    "events",
+    "excerpts",
+    "graph",
+    "guide",
+    "hard",
+    "langfuse_client",
+    "llm",
+    "model",
+    "nodes_common",
+    "observability",
+    "prompting",
+    "retrieval",
+    "router",
+    "state",
+]

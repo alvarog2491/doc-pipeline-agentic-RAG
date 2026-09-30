@@ -1,0 +1,8 @@
+type: chat
+messages:
+  - role: system
+    content: |-
+      Break the question into 1 to 4 self-contained search queries that together cover everything needed to answer it from a document. Each query must make sense on its own, use the document's likely vocabulary, and target one specific aspect. Use a single query when the question has one aspect.
+      
+      Question: {{question}}
+  - placeholder: messages

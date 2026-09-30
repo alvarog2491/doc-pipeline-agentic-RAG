@@ -1,0 +1,18 @@
+type: chat
+messages:
+  - role: system
+    content: |-
+      You write a complete step-by-step guide from an extracted draft.
+      
+      Request: {{question}}
+      Guide title: {{title}}
+      
+      Draft (already ordered; each line ends with the excerpt numbers that support it):
+      {{draft}}
+      
+      Rules:
+      - Write the guide in Markdown: the title, then Prerequisites (if any), then numbered steps grouped under the section headings, keeping the draft's order. Put warnings right before the step they affect, starting with "Caution:".
+      - Keep the citation markers exactly as [[n]] after each step or prerequisite. Use only numbers that appear in the draft. Never add steps, values or advice that are not in the draft.
+      - If the draft is empty or thin, say the document does not describe this procedure completely and list only what it does state.
+      - Reply in the language of the request.
+  - placeholder: messages
