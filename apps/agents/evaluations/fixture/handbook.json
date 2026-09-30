@@ -1,0 +1,67 @@
+{
+  "title": "Aquila X200 Water Purifier - User Handbook",
+  "note": "Synthetic evaluation document. One entry per page; the expected pages in the datasets refer to this order.",
+  "pages": [
+    {
+      "heading": "1. Overview and specifications",
+      "lines": [
+        "The Aquila X200 is a countertop water purifier for household drinking water.",
+        "Maximum operating pressure: 6 bar. Minimum operating pressure: 1.5 bar.",
+        "Maximum inlet water temperature: 40 degrees Celsius.",
+        "Power consumption: 45 W. Supply voltage: 230 V AC.",
+        "Weight: 3.2 kg. Dimensions: 30 x 15 x 40 cm.",
+        "The manufacturer grants a warranty of 24 months from the date of purchase."
+      ]
+    },
+    {
+      "heading": "2. Safety instructions",
+      "lines": [
+        "Always disconnect the unit from the mains before servicing or replacing the cartridge.",
+        "Never operate the purifier with inlet water hotter than 40 degrees Celsius.",
+        "Use only genuine F-200 filter cartridges supplied by the manufacturer.",
+        "Keep the power cable away from wet surfaces and from the water connections.",
+        "The child lock is activated by holding the Lock button for 3 seconds."
+      ]
+    },
+    {
+      "heading": "3. Installation procedure",
+      "lines": [
+        "Before you start you need a Phillips screwdriver, four M6 screws and an adjustable wrench.",
+        "1. Turn off the cold water supply at the isolation valve.",
+        "2. Mount the wall bracket with the four M6 screws, 120 mm above the sink.",
+        "3. Connect the inlet hose to the cold water valve using the 1/2 inch fitting.",
+        "4. Connect the outlet tube to the faucet adapter and hand tighten.",
+        "5. Insert the F-200 filter cartridge and twist it clockwise until it clicks.",
+        "6. Open the water supply slowly and check every connection for leaks.",
+        "7. Flush the system by running 5 liters of water through it, about 10 minutes.",
+        "8. Plug in the unit and press the Start button."
+      ]
+    },
+    {
+      "heading": "4. Maintenance",
+      "lines": [
+        "Replace the filter cartridge every 6 months or after 2000 liters, whichever comes first.",
+        "Clean the housing every month with a soft damp cloth. Do not use solvents.",
+        "Descale the unit every 3 months with a citric acid solution.",
+        "After replacing the cartridge, hold the Reset button for 5 seconds to reset the filter counter."
+      ]
+    },
+    {
+      "heading": "5. Troubleshooting",
+      "lines": [
+        "Symptom: low water flow. Cause: clogged filter cartridge. Fix: replace the cartridge.",
+        "Symptom: red LED blinking. Cause: filter cartridge expired. Fix: replace the cartridge and reset the counter.",
+        "Symptom: water leaking at the inlet. Cause: loose fitting. Fix: tighten the fitting a quarter turn.",
+        "Symptom: unusual noise. Cause: air in the system. Fix: flush the system for 2 minutes."
+      ]
+    },
+    {
+      "heading": "6. Warranty and support",
+      "lines": [
+        "The warranty is void if cartridges that are not genuine F-200 cartridges are used.",
+        "Customer support is available Monday to Friday from 9:00 to 17:00.",
+        "Products may be returned within 30 days of purchase in their original packaging."
+      ]
+    }
+  ]
+}

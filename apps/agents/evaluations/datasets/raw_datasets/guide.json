@@ -1,0 +1,124 @@
+{
+  "name": "evaluation/guide-dataset",
+  "description": "Requests for complete step-by-step procedures against the evaluation handbook; the router should pick the guide route and subagents should extract each section",
+  "item_defaults": {
+    "metadata": {}
+  },
+  "items": [
+    {
+      "id": "guide_01",
+      "input": {
+        "query": "Give me a complete step-by-step guide to install the purifier."
+      },
+      "expected_output": "A numbered installation guide from turning off the water supply to pressing Start.",
+      "metadata": {
+        "key_facts": [
+          "M6"
+        ],
+        "expected_pages": [
+          2,
+          3
+        ],
+        "expected_route": "guide",
+        "required_steps": [
+          [
+            "water supply"
+          ],
+          [
+            "bracket"
+          ],
+          [
+            "inlet hose"
+          ],
+          [
+            "outlet tube"
+          ],
+          [
+            "cartridge"
+          ],
+          [
+            "leak"
+          ],
+          [
+            "flush"
+          ],
+          [
+            "start"
+          ]
+        ],
+        "min_sections": 2
+      }
+    },
+    {
+      "id": "guide_02",
+      "input": {
+        "query": "Walk me through replacing the filter cartridge step by step, including resetting the counter."
+      },
+      "expected_output": "Disconnect from the mains, replace the cartridge, then hold Reset for 5 seconds.",
+      "metadata": {
+        "key_facts": [
+          "5 seconds"
+        ],
+        "expected_pages": [
+          2,
+          4
+        ],
+        "expected_route": "guide",
+        "required_steps": [
+          [
+            "cartridge"
+          ],
+          [
+            "reset"
+          ]
+        ],
+        "min_sections": 2
+      }
+    },
+    {
+      "id": "guide_03",
+      "input": {
+        "query": "Give me a step-by-step maintenance routine covering everything I must do regularly."
+      },
+      "expected_output": "Monthly cleaning, descaling every 3 months, cartridge replacement every 6 months.",
+      "metadata": {
+        "key_facts": [],
+        "expected_pages": [
+          4
+        ],
+        "expected_route": "guide",
+        "required_steps": [
+          [
+            "cartridge"
+          ],
+          [
+            "damp cloth",
+            "clean"
+          ],
+          [
+            "citric",
+            "descale"
+          ]
+        ],
+        "min_sections": 2
+      }
+    },
+    {
+      "id": "guide_04",
+      "input": {
+        "query": "Give me step-by-step instructions to connect the purifier to my Wi-Fi network."
+      },
+      "expected_output": "The handbook does not describe any Wi-Fi connection.",
+      "metadata": {
+        "key_facts": [],
+        "expected_route": "guide",
+        "answerable": false,
+        "forbidden": [
+          "open the app",
+          "enter your wifi password"
+        ],
+        "min_sections": 0
+      }
+    }
+  ]
+}

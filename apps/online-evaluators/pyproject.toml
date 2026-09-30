@@ -1,0 +1,16 @@
+[project]
+name = "DocPipelineOnlineEvaluators"
+version = "0.1.0"
+description = "AgentCore code-based (Lambda) evaluators that score live agent sessions deterministically, with no LLM judge"
+requires-python = ">=3.10"
+dependencies = []
+
+# Not a package: the Lambda zip and the tests both import `online_evaluators` from this directory.
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = ["pytest>=9.1.1", "pytest-cov>=7.1.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

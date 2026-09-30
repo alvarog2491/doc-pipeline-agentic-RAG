@@ -1,0 +1,135 @@
+{
+  "name": "evaluation/hard-dataset",
+  "description": "Multi-part, comparative and cross-section questions against the evaluation handbook; the router should pick the hard route",
+  "item_defaults": {
+    "metadata": {}
+  },
+  "items": [
+    {
+      "id": "hard_01",
+      "input": {
+        "query": "My purifier's LED is blinking red and my tap water is 45 degrees Celsius. What should I do and is it safe to keep using it?"
+      },
+      "expected_output": "Replace the cartridge and reset the counter; 45 degrees exceeds the 40 degree limit so do not operate it.",
+      "metadata": {
+        "key_facts": [
+          [
+            "replace the cartridge",
+            "replace the filter"
+          ],
+          "reset",
+          [
+            "40 degrees",
+            "40 \u00b0C",
+            "40\u00b0C"
+          ]
+        ],
+        "expected_pages": [
+          2,
+          5
+        ],
+        "expected_route": "hard"
+      }
+    },
+    {
+      "id": "hard_02",
+      "input": {
+        "query": "Compare what maintenance must be done every month, every 3 months and every 6 months."
+      },
+      "expected_output": "Monthly cleaning, descaling every 3 months, cartridge every 6 months.",
+      "metadata": {
+        "key_facts": [
+          [
+            "damp cloth",
+            "soft cloth"
+          ],
+          "citric acid",
+          [
+            "6 months",
+            "six months"
+          ]
+        ],
+        "expected_pages": [
+          4
+        ],
+        "expected_route": "hard"
+      }
+    },
+    {
+      "id": "hard_03",
+      "input": {
+        "query": "If I use a cheaper third-party cartridge, what happens to my warranty and does the handbook consider it safe?"
+      },
+      "expected_output": "The warranty is void; only genuine F-200 cartridges may be used.",
+      "metadata": {
+        "key_facts": [
+          "void",
+          [
+            "genuine",
+            "F-200"
+          ]
+        ],
+        "expected_pages": [
+          2,
+          6
+        ],
+        "expected_route": "hard"
+      }
+    },
+    {
+      "id": "hard_04",
+      "input": {
+        "query": "The unit is leaking at the inlet and also makes an unusual noise. What could be wrong with each and how do I fix each problem?"
+      },
+      "expected_output": "Tighten the fitting a quarter turn; flush for 2 minutes to remove air.",
+      "metadata": {
+        "key_facts": [
+          [
+            "loose fitting",
+            "fitting"
+          ],
+          "quarter turn",
+          "flush"
+        ],
+        "expected_pages": [
+          5
+        ],
+        "expected_route": "hard"
+      }
+    },
+    {
+      "id": "hard_05",
+      "input": {
+        "query": "How much water must I flush through at installation, how long does that take, and how much water can a cartridge filter before it needs replacing?"
+      },
+      "expected_output": "5 liters (about 10 minutes); 2000 liters per cartridge.",
+      "metadata": {
+        "key_facts": [
+          "5 liters",
+          "10 minutes",
+          "2000 liters"
+        ],
+        "expected_pages": [
+          3,
+          4
+        ],
+        "expected_route": "hard"
+      }
+    },
+    {
+      "id": "hard_06",
+      "input": {
+        "query": "Compare the X200 with the X300 model in terms of flow rate and tell me which one is better for a large family."
+      },
+      "expected_output": "The handbook does not describe an X300.",
+      "metadata": {
+        "key_facts": [],
+        "answerable": false,
+        "forbidden": [
+          "x300 is better",
+          "x300 has a higher"
+        ]
+      }
+    }
+  ]
+}
