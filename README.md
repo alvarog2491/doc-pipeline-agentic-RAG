@@ -26,27 +26,16 @@ step-by-step guide — streaming the answer to you as it is written.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    U([User]) -->|1. ask for an upload ticket| API
-    U -->|2. upload PDF<br/>presigned POST| S3[(S3 uploads/)]
-    S3 -->|ObjectCreated| L1[Lambda<br/>start_extraction]
-    L1 --> TX[Amazon Textract<br/>LAYOUT + TABLES]
-    TX -->|SNS| L2[Lambda<br/>process_result]
-    L2 -->|per-page Markdown<br/>+ start ingestion job| KB[(Bedrock KB per PDF<br/>built-in chunking + embeddings<br/>S3 Vectors)]
-    L3[Lambda check_ingestion<br/>every minute] -->|job finished| REG
-    L1 & L2 --> REG[(DynamoDB registry<br/>PROCESSING - INDEXING - READY)]
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.png">
+  <img alt="Architecture: the browser uploads a PDF to S3 with a presigned POST, Lambdas run Textract and build a Bedrock Knowledge Base per PDF, and chat requests flow from CloudFront to FastAPI on ECS, the AgentCore Gateway and the LangGraph agent, which retrieves from the Knowledge Base and traces to Langfuse" src="docs/architecture-light.png">
+</picture>
 
-    U -->|chat| FE[React frontend<br/>upload + document dropdown]
-    FE -->|REST + SSE| API[FastAPI on ECS Fargate<br/>behind CloudFront]
-    API -->|list documents| REG
-    API -->|SigV4| GW[AgentCore Gateway]
-    GW --> RT[AgentCore Runtime<br/>LangGraph orchestrator]
-    RT -->|Retrieve| KB
-    RT -.->|traces| LF[Langfuse]
-```
-
-A rendered, explorable version is in [docs/architecture.html](docs/architecture.html).
+The interactive version (theme switch, search, trace a relationship, export) can be opened in the browser through
+[htmlpreview](https://htmlpreview.github.io/?https://github.com/alvarog2491/doc-pipeline-agentic-RAG/blob/main/docs/architecture.html)
+or [raw.githack](https://raw.githack.com/alvarog2491/doc-pipeline-agentic-RAG/main/docs/architecture.html) (GitHub itself only
+shows HTML as source). The file is [docs/architecture.html](docs/architecture.html) and its source is
+[docs/architecture.diagram.json](docs/architecture.diagram.json).
 
 ```
 apps/
