@@ -1,0 +1,29 @@
+[project]
+name = "doc-pipeline-api"
+version = "0.1.0"
+description = "REST + Server-Sent Events API that streams the Doc Pipeline agent's answers to the frontend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.135.0,<1.0.0",
+    "uvicorn[standard]>=0.32.0,<1.0.0",
+    "boto3>=1.42.0,<2.0.0",
+    "pydantic>=2.9.0,<3.0.0",
+    "httpx>=0.27.0,<1.0.0",
+]
+
+# Not a package: the container and the tests both run this app from its own directory
+# (uvicorn puts the working directory on sys.path), so nothing ever imports it from an
+# installed wheel. uv installs the dependency closure and skips building the member.
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    # The workspace resolves one pytest for every member; apps/agents requires >=9.1.1.
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-asyncio>=1.0.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
