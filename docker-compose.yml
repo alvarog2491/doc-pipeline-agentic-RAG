@@ -1,0 +1,114 @@
+services:
+  agents:
+    build:
+      # Root context: the uv workspace lockfile lives at the repo root.
+      context: .
+      dockerfile: apps/agents/Dockerfile
+    command: ["python", "-m", "main"]
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AWS_REGION: ${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-central-1}}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
+      BEDROCK_TEMPERATURE: ${BEDROCK_TEMPERATURE:-}
+      LANGFUSE_TRACING_ENVIRONMENT: ${LANGFUSE_TRACING_ENVIRONMENT:-}
+      LANGFUSE_SSM_PARAMETER_NAME: ${LANGFUSE_SSM_PARAMETER_NAME:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
+      PROMPT_LABEL: ${PROMPT_LABEL:-}
+      BEDROCK_ROUTER_MODEL_ID: ${BEDROCK_ROUTER_MODEL_ID:-}
+    networks:
+      - agent-net
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./apps/agents
+          target: /app/apps/agents
+          ignore:
+            - .venv/
+            - __pycache__/
+            - .pytest_cache/
+            - .ruff_cache/
+            - .coverage
+            - coverage.xml
+        - action: rebuild
+          path: ./apps/agents/pyproject.toml
+        - action: rebuild
+          path: ./uv.lock
+
+  api:
+    build:
+      # Root context: the uv workspace lockfile lives at the repo root.
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      - agents
+    environment:
+      AGENT_GATEWAY_URL: ${AGENT_GATEWAY_URL:-http://agents:8080}
+      REGISTRY_TABLE: ${REGISTRY_TABLE:-}
+      DOCUMENTS_BUCKET: ${DOCUMENTS_BUCKET:-}
+      AWS_REGION: ${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-central-1}}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+    networks:
+      - agent-net
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; socket.create_connection(('localhost', 8000), timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./apps/api/chat_api
+          target: /app/apps/api/chat_api
+        - action: rebuild
+          path: ./apps/api/pyproject.toml
+        - action: rebuild
+          path: ./uv.lock
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - agent-net
+    develop:
+      watch:
+        - action: rebuild
+          path: ./apps/frontend/src
+        - action: rebuild
+          path: ./apps/frontend/index.html
+        - action: rebuild
+          path: ./apps/frontend/package.json
+        - action: rebuild
+          path: ./packages/shared-types/src
+        - action: rebuild
+          path: ./packages/shared-types/package.json
+        - action: rebuild
+          path: ./pnpm-lock.yaml
+
+networks:
+  agent-net:
