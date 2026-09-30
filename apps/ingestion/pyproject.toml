@@ -1,0 +1,21 @@
+[project]
+name = "DocPipelineIngestion"
+version = "0.1.0"
+description = "S3-triggered Lambda pipeline: Textract structured extraction, semantic chunking, and one Bedrock Knowledge Base (S3 Vectors) per uploaded PDF"
+requires-python = ">=3.10"
+# boto3 is provided by the Lambda runtime, so nothing here is bundled into the deployment zip.
+dependencies = []
+
+# Not a package: the Lambda zip and the tests both import `ingestion` from this directory.
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "boto3>=1.35.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
