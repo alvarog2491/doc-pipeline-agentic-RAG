@@ -1,0 +1,7 @@
+{
+  "//": "Shared config defaults, read by both terraform/config.tf (deployed side) and scripts/pipeline_tools/config.py (local dev). The one place these values live - a change here reaches a `terraform apply` and `make compose-up` / `make run-agent` alike.",
+  "bedrockModelId": "qwen.qwen3-235b-a22b-2507-v1:0",
+  "bedrockRouterModelId": "",
+  "bedrockTemperature": 0,
+  "langfuseBaseUrl": "https://cloud.langfuse.com"
+}
