@@ -79,16 +79,15 @@ def build_agent(
     graph.add_edge(START, "classify")
     graph.add_conditional_edges(
         "classify",
-        lambda state: {
-            "easy": "easy_answer",
-            "hard": "decompose",
-            "guide": "guide_plan",
-        }[state["route"]],
+        lambda state: state["route"],
+        {"easy": "easy_answer", "hard": "decompose", "guide": "guide_plan"},
     )
     graph.add_edge("easy_answer", END)
     graph.add_edge("decompose", "retrieve_many")
     graph.add_edge("retrieve_many", "analyze")
-    graph.add_conditional_edges("analyze", needs_more, ["retrieve_many", "synthesize"])
+    graph.add_conditional_edges(
+        "analyze", needs_more, {"gaps": "retrieve_many", "enough": "synthesize"}
+    )
     graph.add_edge("synthesize", END)
     graph.add_conditional_edges(
         "guide_plan", fan_out, ["section_extractor", "prerequisites_checker"]

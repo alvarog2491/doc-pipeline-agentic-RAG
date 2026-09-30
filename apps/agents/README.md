@@ -1,29 +1,53 @@
 # Agent
 
 Python **LangGraph orchestrator** deployed to Amazon Bedrock AgentCore Runtime. The user picks one
-uploaded document (one Bedrock Knowledge Base per PDF); every turn is routed by an LLM judge to
+uploaded document (one Bedrock Knowledge Base per PDF); every turn is routed by an LLM router to
 one of three workflows.
 
+<!-- graph:start -->
 ```mermaid
-flowchart TD
-    S([start]) --> C[classify<br/>route + standalone question]
-    C -->|easy| E[easy_answer<br/>1 retrieval, streamed answer]
-    C -->|hard| D[decompose] --> R[retrieve_many<br/>parallel searches] --> A[analyze<br/>sufficiency check]
-    A -->|gaps, first time| R
-    A -->|sufficient| Y[synthesize<br/>streamed answer]
-    C -->|guide| P[guide_plan<br/>outline]
-    P --> X1[section_extractor subagent]:::sub
-    P --> X2[section_extractor subagent]:::sub
-    P --> X3[prerequisites_checker subagent]:::sub
-    X1 --> G[guide_assemble<br/>streamed guide]
-    X2 --> G
-    X3 --> G
-    E --> F([end])
-    Y --> F
-    G --> F
-    classDef sub fill:#eef,stroke:#88a
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	classify(classify)
+	easy_answer(easy_answer)
+	decompose(decompose)
+	retrieve_many(retrieve_many)
+	analyze(analyze)
+	synthesize(synthesize)
+	guide_plan(guide_plan)
+	section_extractor(section_extractor)
+	prerequisites_checker(prerequisites_checker)
+	guide_assemble(guide_assemble)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> classify;
+	analyze -. &nbsp;gaps&nbsp; .-> retrieve_many;
+	analyze -. &nbsp;enough&nbsp; .-> synthesize;
+	classify -. &nbsp;hard&nbsp; .-> decompose;
+	classify -. &nbsp;easy&nbsp; .-> easy_answer;
+	classify -. &nbsp;guide&nbsp; .-> guide_plan;
+	decompose --> retrieve_many;
+	guide_plan -.-> prerequisites_checker;
+	guide_plan -.-> section_extractor;
+	prerequisites_checker --> guide_assemble;
+	retrieve_many --> analyze;
+	section_extractor --> guide_assemble;
+	easy_answer --> __end__;
+	guide_assemble --> __end__;
+	synthesize --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
 ```
+<!-- graph:end -->
 
+The diagram above is generated from the compiled graph by LangGraph itself (`get_graph().draw_mermaid()`); dotted edges are
+conditional. Refresh it after changing `graph.py` with `uv run --package DocPipelineAgent python graph_diagram.py --write`; a test
+fails when it is stale.
 | Route | When | What runs |
 |---|---|---|
 | `easy` | a fact, definition, or small talk | one retrieval (5 passages) → one streamed, cited answer. First token arrives after the router call and one search. |
@@ -47,6 +71,7 @@ Response events, in order: `{"route": ...}`, `{"progress": ...}`*, `{"chunk": ..
 |---|---|
 | `main.py` | AgentCore entrypoint: validates the payload, streams graph events, records Langfuse metadata (`route`, retrieved excerpts, citations) and feedback scores. |
 | `graph.py` | `build_agent` — wires the nodes above into a `StateGraph` with an in-memory checkpointer. |
+| `graph_diagram.py` | Draws the compiled graph with LangGraph's own `draw_mermaid()` and keeps the diagram above in sync (`--write`). |
 | `router.py`, `easy.py`, `hard.py`, `guide.py` | The nodes of each workflow. |
 | `state.py` | Graph state and the Pydantic schemas for structured model outputs. |
 | `nodes_common.py`, `llm.py`, `events.py` | Shared dependencies, model-call helpers, and the custom event stream. |

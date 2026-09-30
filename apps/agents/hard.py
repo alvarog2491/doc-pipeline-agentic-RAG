@@ -22,7 +22,8 @@ def make_hard(deps: Deps):
 
     Returns:
         ``(decompose, retrieve_many, analyze, synthesize, needs_more)``: four async nodes and
-        the conditional-edge function that loops back for one more retrieval round.
+        the conditional-edge function returning ``"gaps"`` (loop back for one more retrieval
+        round) or ``"enough"`` (go on to the answer).
     """
 
     async def decompose(state: AgentState) -> dict:
@@ -74,6 +75,6 @@ def make_hard(deps: Deps):
 
     def needs_more(state: AgentState) -> str:
         more = bool(state.get("sub_queries")) and state.get("rounds", 0) < MAX_ROUNDS
-        return "retrieve_many" if more else "synthesize"
+        return "gaps" if more else "enough"
 
     return decompose, retrieve_many, analyze, synthesize, needs_more
