@@ -1,0 +1,159 @@
+name: DevSecOps
+
+# Pull requests into main only, not every push. These four scanners are the slowest and
+# most expensive jobs in the repository, and their answer is a property of the change as a
+# whole rather than of each intermediate commit on a branch - so they run once the change
+# is proposed for merge, alongside ci-feature.yml and cd-staging.yml, rather than on every
+# work-in-progress push.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+concurrency:
+  group: devsecops-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checkov:
+    name: Checkov (IaC)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+
+      # Accepted findings. Each is either a deliberate architecture decision, a cost
+      # trade-off, or a check Checkov cannot evaluate correctly. Everything not listed
+      # here is enforced and fails the build.
+      #
+      # Deliberate design:
+      #   CKV_AWS_2/103/260  The ALB serves plain HTTP on :80. There is no domain and no ACM
+      #                      certificate, so there is no HTTPS listener; CloudFront terminates
+      #                      TLS in front of it (terraform/modules/cloudfront).
+      #   CKV_AWS_174        CloudFront uses the default *.cloudfront.net certificate, so
+      #                      MinimumProtocolVersion cannot be set.
+      #   CKV_AWS_117        The default VPC has public subnets only and no NAT gateway, so a
+      #                      Lambda placed in it would lose egress to Textract and Bedrock.
+      #   CKV_AWS_111/356    Textract, Bedrock Knowledge Base administration and X-Ray take no
+      #                      resource constraint or need account-wide scope: Knowledge Bases
+      #                      are created at runtime, one per uploaded PDF.
+      #   CKV_AWS_51         Dev repositories are mutable so a personal deploy can move `latest`;
+      #                      prod is IMMUTABLE (terraform/config.tf).
+      #   CKV_AWS_144/145    Cross-region replication and KMS on the state, log and document
+      #                      buckets are not needed for this workload; SSE-S3 is enabled.
+      #   CKV_AWS_27         The ingestion DLQ uses SSE-SQS, which this check does not recognise.
+      #
+      # Cost trade-offs, revisit when this carries production traffic:
+      #   CKV_AWS_18/91      S3 and ALB access logging need a dedicated log bucket.
+      #   CKV_AWS_68         A WAF web ACL on the CloudFront distribution costs per month plus
+      #                      per request.
+      #   CKV_AWS_158/173    Log group and Lambda env var encryption need a customer-managed KMS
+      #                      key.
+      #   CKV_AWS_115/116   Reserved concurrency for the ingestion Lambdas would cap upload bursts.
+      #   CKV_AWS_338        90-day retention in production is a cost decision (config.tf).
+      #   CKV2_AWS_61/62     Extra lifecycle rules and event notifications on the document
+      #                      bucket are not required.
+      - name: Checkov (Terraform)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform
+          framework: terraform
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          skip_check: CKV_AWS_2,CKV_AWS_18,CKV_AWS_27,CKV_AWS_51,CKV_AWS_68,CKV_AWS_91,CKV_AWS_103,CKV_AWS_111,CKV_AWS_115,CKV_AWS_116,CKV_AWS_117,CKV_AWS_144,CKV_AWS_145,CKV_AWS_158,CKV_AWS_173,CKV_AWS_174,CKV_AWS_260,CKV_AWS_338,CKV_AWS_356,CKV2_AWS_61,CKV2_AWS_62
+
+      - name: Upload Checkov SARIF
+        # Checkov writes a directory here, not a single file. Guarded on the report
+        # existing so a scanner that dies early surfaces its own error rather than a
+        # missing-path one from this step.
+        if: always() && hashFiles('checkov-results.sarif', 'checkov-results.sarif/**') != ''
+        # Code scanning is not enabled on this private repository, so the upload
+        # currently no-ops rather than failing the job.
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov
+
+  trivy:
+    name: Trivy (filesystem)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    # No install: skip-dirs below keeps node_modules out of the scan, and what is left -
+    # pnpm-lock.yaml, uv.lock and the Terraform files - is committed.
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Trivy (filesystem)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
+          skip-dirs: node_modules
+          exit-code: "1"
+
+      - name: Upload Trivy SARIF
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+  audit-javascript:
+    name: Audit dependencies / JavaScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.0.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # pnpm audit reads the lockfile, but installing first also fails the job on a
+      # lockfile that has drifted from the manifests.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit
+        run: pnpm audit --audit-level=high
+
+  audit-python:
+    # One member per job, so each report covers that service's own dependency closure
+    # and the two run at the same time.
+    name: Audit dependencies / ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: api
+            package: doc-pipeline-api
+          - app: agents
+            package: DocPipelineAgent
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Install dependencies
+        run: uv sync --frozen --package ${{ matrix.package }}
+
+      - name: Audit
+        run: uv run --no-sync --with pip-audit pip-audit

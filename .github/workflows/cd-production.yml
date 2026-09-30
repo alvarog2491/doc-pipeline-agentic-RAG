@@ -1,0 +1,330 @@
+name: CD - Production
+
+# Runs on the push to main that follows a merge.
+#
+# Infrastructure changes are applied with Terraform. A new AGENT version is never applied
+# directly: the image is built and pushed, and then alvarog2491/agentcore-ab-release-gate
+# runs a native AgentCore A/B test between the current `control` endpoint and the candidate
+# on live Gateway traffic, scores both with the online evaluators Terraform created (all
+# deterministic Lambda checks - no LLM judge), and promotes the candidate only if every
+# quality gate passes. Otherwise the control version keeps serving.
+#
+# The very first deploy has no control endpoint to compare against, so it is applied
+# directly; every later release goes through the gate.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: How long the A/B test observes live traffic
+        required: false
+        default: "1800"
+        type: string
+      treatment_weight:
+        description: Percentage of Gateway traffic routed to the candidate (control gets the rest)
+        required: false
+        default: "20"
+        type: string
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write # the release gate comments its result on the merged pull request
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ENV: prod
+
+jobs:
+  changes:
+    name: Detect production changes
+    runs-on: ubuntu-latest
+    outputs:
+      agent: ${{ steps.detect.outputs.agent }}
+      api: ${{ steps.detect.outputs.api }}
+      infra: ${{ steps.detect.outputs.infra }}
+      datasets: ${{ steps.detect.outputs.datasets }}
+      prompts: ${{ steps.detect.outputs.prompts }}
+      image_tag: ${{ steps.release.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create image tag
+        id: release
+        run: echo "image_tag=sha-${GITHUB_SHA}-$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Detect changed files
+        id: detect
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          base: ${{ github.ref }}
+          filters: |
+            agent:
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'apps/agents/**'
+            api:
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'apps/api/**'
+            infra:
+              - 'terraform/**'
+              - 'apps/ingestion/**'
+              - 'apps/online-evaluators/**'
+            datasets:
+              - 'apps/agents/evaluations/**'
+            prompts:
+              - 'apps/agents/prompts/*.yaml'
+              - 'scripts/prompts/**'
+
+  ecr:
+    name: Ensure ECR repositories exist
+    needs: changes
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.1
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform apply (ECR only)
+        run: |
+          scripts/ci/tf.sh "$ENV" apply -auto-approve -input=false -target=module.ecr \
+            -var-file="envs/$ENV.tfvars" -var "region=$AWS_REGION"
+
+  sync-langfuse:
+    name: Sync changed production Langfuse resources
+    needs: changes
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      LANGFUSE_SSM_PARAMETER_NAME: /doc-pipeline-agent/prod/langfuse
+      LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com' }}
+    steps:
+      - uses: actions/checkout@v5
+      - if: needs.changes.outputs.prompts == 'true' || needs.changes.outputs.datasets == 'true'
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Configure AWS credentials
+        if: needs.changes.outputs.prompts == 'true' || needs.changes.outputs.datasets == 'true'
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync prompts under the production label
+        if: needs.changes.outputs.prompts == 'true'
+        run: uv run scripts/docpipe.py prompts sync
+
+      - name: Upsert datasets
+        if: needs.changes.outputs.datasets == 'true'
+        working-directory: apps/agents
+        run: |
+          uv sync --frozen --package DocPipelineAgent
+          uv run --no-sync --package DocPipelineAgent python evaluations/datasets/create_easy_dataset.py
+          uv run --no-sync --package DocPipelineAgent python evaluations/datasets/create_hard_dataset.py
+          uv run --no-sync --package DocPipelineAgent python evaluations/datasets/create_guide_dataset.py
+
+  agent:
+    name: Release the agent
+    needs: [changes, ecr, sync-langfuse]
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.agent == 'true' || needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    # The A/B test observes live traffic for up to `duration_seconds`, plus evaluation lag.
+    timeout-minutes: 240
+    env:
+      IMAGE_TAG: ${{ needs.changes.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.1
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          # The gate observes live traffic for a long time; the default 1 h session would expire.
+          role-duration-seconds: 14400
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push the agent image
+        if: needs.changes.outputs.agent == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/agents/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/doc-pipeline-agent-prod:${{ env.IMAGE_TAG }}
+
+      # Applies infrastructure changes. Terraform ignores the runtime image and the control
+      # endpoint's version in this environment (terraform/modules/agentcore), so this never
+      # promotes an agent version - it only creates the runtime on the very first deploy.
+      - name: Terraform apply
+        env:
+          LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
+        run: |
+          scripts/ci/tf.sh "$ENV" apply -auto-approve -input=false \
+            -var-file="envs/$ENV.tfvars" -var "region=$AWS_REGION" \
+            -var "agent_image_tag=$IMAGE_TAG" \
+            -var "langfuse_base_url=${LANGFUSE_BASE_URL:-}" \
+            -var "cors_allow_origins=${{ vars.FRONTEND_ORIGIN || 'http://localhost:5173' }}"
+
+      - name: Read the release-gate inputs from Terraform
+        id: tf
+        run: |
+          out() { scripts/ci/tf.sh "$ENV" output -raw "$1"; }
+          {
+            echo "runtime_id=$(out runtime_id)"
+            echo "gateway_id=$(out gateway_id)"
+            echo "evaluation_config_id=$(out evaluation_config_id)"
+            echo "ab_test_role_arn=$(out ab_test_role_arn)"
+            echo "quality_gates<<EOF"
+            out quality_gates
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # The gate takes two independent percentages, and GitHub expressions have no arithmetic.
+      - name: Compute the traffic split
+        id: split
+        env:
+          TREATMENT_WEIGHT: ${{ inputs.treatment_weight || '20' }}
+        run: |
+          {
+            echo "treatment=$TREATMENT_WEIGHT"
+            echo "control=$((100 - TREATMENT_WEIGHT))"
+          } >> "$GITHUB_OUTPUT"
+
+      # Decide whether there is a control version to compare against. The endpoint exists
+      # (Terraform created it) but a brand-new runtime has only its first version.
+      - name: Detect the first deployment
+        id: first
+        run: |
+          versions="$(aws bedrock-agentcore-control list-agent-runtime-versions \
+            --agent-runtime-id "${{ steps.tf.outputs.runtime_id }}" \
+            --query 'length(agentRuntimes)' --output text 2>/dev/null || echo 0)"
+          if [ "$versions" -le 1 ]; then
+            echo "first=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::first deployment - the runtime was created directly, nothing to A/B against"
+          else
+            echo "first=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: A/B test the candidate and promote or roll back
+        if: steps.first.outputs.first == 'false' && (needs.changes.outputs.agent == 'true' || github.event_name == 'workflow_dispatch')
+        # Pinned to the reviewed v1.1.2 commit rather than a movable tag.
+        uses: alvarog2491/agentcore-ab-release-gate@c3b197619c73e45d395bb3eb9a535ddc464ed254 # v1.1.2
+        with:
+          image-uri: ${{ steps.ecr.outputs.registry }}/doc-pipeline-agent-prod:${{ env.IMAGE_TAG }}
+          runtime-id: ${{ steps.tf.outputs.runtime_id }}
+          gateway-id: ${{ steps.tf.outputs.gateway_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          evaluation-config-id: ${{ steps.tf.outputs.evaluation_config_id }}
+          ab-test-role-arn: ${{ steps.tf.outputs.ab_test_role_arn }}
+          duration-seconds: ${{ inputs.duration_seconds || '1800' }}
+          treatment-weight: ${{ steps.split.outputs.treatment }}
+          control-weight: ${{ steps.split.outputs.control }}
+          quality-gates: ${{ steps.tf.outputs.quality_gates }}
+          github-token: ${{ github.token }}
+
+  api:
+    name: Deploy the API to ECS
+    needs: [changes, ecr, sync-langfuse, agent]
+    if: >-
+      always() &&
+      (github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true' || needs.changes.outputs.infra == 'true') &&
+      needs.ecr.result == 'success' &&
+      needs.sync-langfuse.result == 'success' &&
+      (needs.agent.result == 'success' || needs.agent.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    env:
+      IMAGE_TAG: ${{ needs.changes.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.1
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push the API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/doc-pipeline-api-prod:${{ env.IMAGE_TAG }}
+
+      - name: Terraform apply
+        env:
+          LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
+        run: |
+          scripts/ci/tf.sh "$ENV" apply -auto-approve -input=false \
+            -var-file="envs/$ENV.tfvars" -var "region=$AWS_REGION" \
+            -var "agent_image_tag=$IMAGE_TAG" \
+            -var "api_image_tag=$IMAGE_TAG" \
+            -var "langfuse_base_url=${LANGFUSE_BASE_URL:-}" \
+            -var "cors_allow_origins=${{ vars.FRONTEND_ORIGIN || 'http://localhost:5173' }}"
+
+  verify:
+    name: Verify production end to end
+    needs: [changes, ecr, sync-langfuse, agent, api]
+    if: >-
+      always() &&
+      needs.changes.result == 'success' &&
+      needs.ecr.result == 'success' &&
+      needs.sync-langfuse.result == 'success' &&
+      (needs.agent.result == 'success' || needs.agent.result == 'skipped') &&
+      (needs.api.result == 'success' || needs.api.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.1
+          terraform_wrapper: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify the deployment serves traffic
+        run: uv run scripts/docpipe.py deploy verify

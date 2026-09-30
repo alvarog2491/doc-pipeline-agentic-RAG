@@ -1,0 +1,288 @@
+name: CD - Staging
+
+# The gate a change must pass before it is allowed to merge into main.
+#
+# It deploys the pull request into a full copy of production - staging is spread from the
+# prod config in terraform/config.tf, so same task sizing, same pinned model, same rollback
+# behaviour - proves the deployment actually serves traffic, uploads the evaluation
+# handbook through the real S3 -> Textract -> chunking -> Knowledge Base pipeline, and then
+# runs the deterministic Langfuse experiments against the deployed agent. Green here means
+# the change was really deployed and really served traffic, not that it compiled.
+#
+# The `experiments` job is advisory: it runs every dataset and posts the scores to the PR,
+# but `continue-on-error` keeps it from blocking the merge. Read the score comment before
+# merging; treat a drop as a review signal, not a hard gate. No score uses an LLM judge.
+#
+# Once the experiments have run, the `teardown` job destroys the compute (load balancer,
+# ECS service, CloudFront) which only exists to prove this PR serves traffic. Everything
+# stateful or slow to rebuild (documents, Knowledge Bases, AgentCore, ECR) stays up.
+#
+# Nothing here can reach production. Staging lives in its own AWS account, reached through
+# the `staging` GitHub Environment's own AWS_DEPLOY_ROLE_ARN; production is deployed by
+# cd-production.yml on the push to main that follows the merge.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+# Staging is one shared environment, so runs queue rather than overlap - two applies into
+# the same state at once is how you get a locked or half-applied state. Never cancelled
+# mid-flight for the same reason.
+concurrency:
+  group: cd-staging
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # OIDC identity exchange for the AWS deploy role
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ENV: staging
+
+jobs:
+  ecr:
+    name: Ensure ECR repositories exist
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.1
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-skip-session-tagging: true
+
+      - name: Terraform apply (ECR only)
+        run: |
+          scripts/ci/tf.sh "$ENV" apply -auto-approve -input=false -target=module.ecr \
+            -var-file="envs/$ENV.tfvars" -var "region=$AWS_REGION"
+
+  # ECS is destroyed after every run, so there is no running API image tag to reuse.
+  # Staging is also shared by unrelated PRs; reusing its retained agent image could test
+  # this PR against another PR's code. Publish this checkout under one SHA.
+  build-images:
+    name: Build & publish / ${{ matrix.app }}
+    needs: ecr
+    runs-on: ubuntu-latest
+    environment: staging
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: agents
+            repository: agent
+            platform: linux/arm64 # AgentCore Runtime is ARM64-only
+            dockerfile: apps/agents/Dockerfile
+          - app: api
+            repository: api
+            platform: linux/amd64
+            dockerfile: apps/api/Dockerfile
+    steps:
+      - uses: actions/checkout@v5
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ECR
+        id: ecr
+        run: |
+          registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+          echo "registry=$registry" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push sha-${{ github.sha }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/doc-pipeline-${{ matrix.repository }}-staging:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy & verify staging
+    needs: [build-images]
+    runs-on: ubuntu-latest
+    environment: staging
+    outputs:
+      gateway_url: ${{ steps.outputs.outputs.gateway_url }}
+      documents_bucket: ${{ steps.outputs.outputs.documents_bucket }}
+      registry_table: ${{ steps.outputs.outputs.registry_table }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.1
+          terraform_wrapper: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check uv.lock is in sync with the manifests
+        run: uv lock --check
+
+      - name: Sync prompts under the staging label
+        run: uv run scripts/docpipe.py prompts sync
+
+      - name: Terraform apply
+        env:
+          LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
+        run: |
+          scripts/ci/tf.sh "$ENV" apply -auto-approve -input=false \
+            -var-file="envs/$ENV.tfvars" -var "region=$AWS_REGION" \
+            -var "agent_image_tag=sha-${{ github.sha }}" \
+            -var "api_image_tag=sha-${{ github.sha }}" \
+            -var "langfuse_base_url=${LANGFUSE_BASE_URL:-}" \
+            -var "cors_allow_origins=${{ vars.FRONTEND_ORIGIN || 'http://localhost:5173' }}"
+
+      - name: Export Terraform outputs
+        id: outputs
+        run: uv run scripts/docpipe.py deploy outputs >> "$GITHUB_OUTPUT"
+
+      # Publishes the evaluation handbook through S3 -> Textract -> chunking -> Knowledge
+      # Base, and asks the agent about it. This is the end-to-end proof for the ingestion
+      # pipeline and the agent together.
+      - name: Verify the deployment serves traffic
+        run: uv run scripts/docpipe.py deploy verify
+
+  prepare-evaluation:
+    name: Prepare evaluation datasets + document
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    environment: staging
+    outputs:
+      knowledge_base_id: ${{ steps.prepare.outputs.eval_knowledge_base_id }}
+    env:
+      LANGFUSE_SSM_PARAMETER_NAME: /doc-pipeline-agent/staging/langfuse
+      LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com' }}
+      DOCUMENTS_BUCKET: ${{ needs.deploy.outputs.documents_bucket }}
+      REGISTRY_TABLE: ${{ needs.deploy.outputs.registry_table }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Install dependencies
+        run: uv sync --frozen --package DocPipelineAgent
+
+      - name: Upsert datasets
+        working-directory: apps/agents
+        run: |
+          uv run --no-sync --package DocPipelineAgent python evaluations/datasets/create_easy_dataset.py
+          uv run --no-sync --package DocPipelineAgent python evaluations/datasets/create_hard_dataset.py
+          uv run --no-sync --package DocPipelineAgent python evaluations/datasets/create_guide_dataset.py
+
+      - name: Publish the evaluation handbook and wait for its Knowledge Base
+        id: prepare
+        working-directory: apps/agents
+        run: |
+          kb_id="$(uv run --no-sync --package DocPipelineAgent python -c \
+            "import sys; sys.path.insert(0, 'evaluations'); from fixture.document import ensure_fixture_document; print(ensure_fixture_document())" | tail -n1)"
+          echo "eval_knowledge_base_id=$kb_id" >> "$GITHUB_OUTPUT"
+
+  experiments:
+    name: Experiment / ${{ matrix.experiment }}
+    needs: [deploy, prepare-evaluation]
+    runs-on: ubuntu-latest
+    environment: staging
+    continue-on-error: true
+    # Job-level permissions replace the workflow-level block outright, so id-token and
+    # contents are repeated here. pull-requests + actions are what langfuse/experiment-action
+    # needs to post its score comment on the PR and link it to this specific matrix leg.
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - experiment: easy
+            experiment_path: apps/agents/evaluations/experiments/run_easy_experiment.py
+            dataset_name: evaluation/easy-dataset
+          - experiment: hard
+            experiment_path: apps/agents/evaluations/experiments/run_hard_experiment.py
+            dataset_name: evaluation/hard-dataset
+          - experiment: guide
+            experiment_path: apps/agents/evaluations/experiments/run_guide_experiment.py
+            dataset_name: evaluation/guide-dataset
+    env:
+      LANGFUSE_SSM_PARAMETER_NAME: /doc-pipeline-agent/staging/langfuse
+      LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com' }}
+      AGENT_GATEWAY_URL: ${{ needs.deploy.outputs.gateway_url }}
+      EVAL_KNOWLEDGE_BASE_ID: ${{ needs.prepare-evaluation.outputs.knowledge_base_id }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies
+        run: uv sync --frozen --package DocPipelineAgent
+
+      # experiment-action invokes a bare `python`; point it at the workspace venv uv just
+      # built so the experiment imports the pinned langfuse plus boto3 / httpx / dotenv.
+      - name: Put the uv venv on PATH
+        run: echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Run the experiment
+        uses: langfuse/experiment-action@830ce5fa482d8e148cc141664f437c963ed1603f # v1.0.9
+        with:
+          langfuse_public_key: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          langfuse_secret_key: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          langfuse_base_url: ${{ env.LANGFUSE_BASE_URL }}
+          experiment_path: ${{ matrix.experiment_path }}
+          dataset_name: ${{ matrix.dataset_name }}
+          should_skip_sdk_installation: "true"
+          github_token: ${{ github.token }}
+
+  teardown:
+    name: Tear down staging compute
+    needs: [deploy, experiments]
+    if: always()
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.1
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform destroy the compute modules
+        run: |
+          scripts/ci/tf.sh "$ENV" destroy -auto-approve -input=false \
+            -target=module.cloudfront -target=module.ecs -target=module.alb \
+            -var-file="envs/$ENV.tfvars" -var "region=$AWS_REGION"

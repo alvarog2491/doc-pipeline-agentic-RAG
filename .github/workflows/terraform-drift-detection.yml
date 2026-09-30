@@ -1,0 +1,76 @@
+name: Ops – Terraform Drift Detection
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ops-drift
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ENV: prod
+
+jobs:
+  terraform-drift-detection:
+    name: Terraform drift (prod)
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.1
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # A plan is only a drift report if it is compared against the values prod was deployed
+      # with. The release pins the API image tag; the agent image is owned by the release
+      # gate and ignored by Terraform, so it cannot show up as drift.
+      - name: Resolve the API image tag prod is running
+        id: deployed
+        run: |
+          task_definition="$(aws ecs describe-services --cluster "doc-pipeline-$ENV" \
+            --services "doc-pipeline-api-$ENV" --query 'services[0].taskDefinition' --output text)"
+          image="$(aws ecs describe-task-definition --task-definition "$task_definition" \
+            --query "taskDefinition.containerDefinitions[?name=='api'].image | [0]" --output text)"
+          echo "api_tag=${image##*:}" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform plan - prod
+        run: |
+          # -detailed-exitcode is what makes this a detector at all: 0 = no changes,
+          # 1 = error, 2 = changes (drift). `plan` alone exits 0 whatever it prints.
+          set +e
+          scripts/ci/tf.sh "$ENV" plan -input=false -lock=false -detailed-exitcode \
+            -var-file="envs/$ENV.tfvars" -var "region=$AWS_REGION" \
+            -var "api_image_tag=${{ steps.deployed.outputs.api_tag }}" \
+            -var "langfuse_base_url=${{ vars.LANGFUSE_BASE_URL }}" \
+            -var "cors_allow_origins=${{ vars.FRONTEND_ORIGIN || 'http://localhost:5173' }}" \
+            2>&1 | tee "$RUNNER_TEMP/terraform-plan-prod.txt"
+          code=${PIPESTATUS[0]}
+          set -e
+          if [[ $code -eq 2 ]]; then
+            echo "::error::Terraform drift detected in prod - resources differ from the code. Review artifact terraform-plan-prod.txt"
+            exit 1
+          elif [[ $code -ne 0 ]]; then
+            exit "$code"
+          fi
+
+      - name: Upload plan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-prod
+          path: ${{ runner.temp }}/terraform-plan-prod.txt
+          retention-days: 7

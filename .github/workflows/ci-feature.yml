@@ -1,0 +1,233 @@
+name: CI
+
+# Every push to a working branch, and every pull request aimed at main. Pushes to main
+# itself are not built here - by then the commit has already been through this workflow on
+# its pull request, and cd-production.yml takes over.
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  lint-typescript:
+    name: Lint TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.0.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm -r lint
+
+  lint-python:
+    name: Lint Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      # One call covers the whole workspace, so every member is checked here rather than
+      # inside each image: the Dockerfiles sync with --frozen and never revalidate the lock.
+      - name: Check uv.lock is in sync with the manifests
+        run: uv lock --check
+
+      - name: Ruff
+        run: uvx ruff check apps scripts && uvx ruff format --check apps scripts
+
+  typecheck:
+    name: TypeScript type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.0.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared-types
+        run: pnpm --filter @doc-pipeline/shared-types build
+
+      - name: Type check
+        run: pnpm --filter @doc-pipeline/frontend exec tsc --noEmit
+
+  test-typescript:
+    name: Test TypeScript
+    # Gate the slow test/build jobs behind the ~1-min lint/typecheck jobs so a
+    # broken push fails cheap instead of burning runner minutes on full suites.
+    needs: [lint-typescript, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.0.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared-types
+        run: pnpm --filter @doc-pipeline/shared-types build
+
+      - name: Test with coverage
+        run: pnpm --filter @doc-pipeline/frontend exec vitest run --coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-typescript-frontend
+          path: apps/frontend/coverage
+          retention-days: 7
+
+  test-python:
+    name: Test Python / ${{ matrix.app }}
+    needs: [lint-python]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: api
+            package: doc-pipeline-api
+            cov_src: chat_api
+          - app: agents
+            package: DocPipelineAgent
+            cov_src: .
+          - app: ingestion
+            package: DocPipelineIngestion
+            cov_src: ingestion
+          - app: online-evaluators
+            package: DocPipelineOnlineEvaluators
+            cov_src: online_evaluators
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      # Synced from the workspace root against the single root lockfile; --package
+      # narrows the install to this member. Its dev group comes in by default.
+      - name: Install dependencies
+        run: uv sync --frozen --package ${{ matrix.package }}
+
+      - name: Test with coverage
+        working-directory: apps/${{ matrix.app }}
+        run: uv run --no-sync --package ${{ matrix.package }} python -m pytest -q --tb=short --cov=${{ matrix.cov_src }} --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-python-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/coverage.xml
+          retention-days: 7
+
+  test-scripts:
+    name: Test CLI scripts
+    needs: [lint-python]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Install dependencies
+        run: uv sync --frozen --package doc-pipeline-api
+
+      - name: Test
+        run: uv run --no-sync --package doc-pipeline-api python -m pytest -q scripts/tests
+
+  terraform:
+    name: Terraform validate & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.1
+
+      - name: Format
+        run: terraform fmt -check -recursive
+        working-directory: terraform
+
+      - name: Init (no backend)
+        run: terraform init -backend=false -input=false
+        working-directory: terraform
+
+      - name: Validate
+        run: terraform validate
+        working-directory: terraform
+
+      # Plan-level tests with mocked providers: they pin the per-environment configuration
+      # (prod is release-gated and retains state, staging is derived from prod, ...).
+      - name: Test
+        run: terraform test
+        working-directory: terraform
+
+      - name: Validate bootstrap
+        run: terraform init -backend=false -input=false && terraform validate
+        working-directory: terraform/bootstrap
+
+  docker-dry-run:
+    name: Docker Build / ${{ matrix.app }}
+    needs: [lint-typescript, lint-python, typecheck]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both build from the repo root, where the uv workspace lockfile lives.
+          - app: api
+            platform: linux/amd64
+            context: .
+            dockerfile: apps/api/Dockerfile
+          - app: agents
+            platform: linux/arm64
+            context: .
+            dockerfile: apps/agents/Dockerfile
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
