@@ -1,0 +1,19 @@
+# Applies to every image: all of them build from the repo root, where the uv workspace
+# lockfile lives.
+.git
+.env
+.env.*
+**/node_modules
+**/.venv
+**/__pycache__
+**/dist
+coverage
+
+# Build caches and test artifacts.
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/coverage.xml
+**/.coverage
+.pnpm-store
+
