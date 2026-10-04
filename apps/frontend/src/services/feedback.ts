@@ -2,8 +2,8 @@ import { apiBase } from "./chatApi";
 
 /**
  * Whether the conversation helped the user:
- * - `helpful`     — the answers were useful
- * - `not_helpful` — they were not; a written detail is required
+ * - `helpful`: the answers were useful
+ * - `not_helpful`: they were not; a written detail is required
  */
 export type FeedbackOutcome = "helpful" | "not_helpful";
 

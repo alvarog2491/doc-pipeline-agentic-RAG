@@ -1,7 +1,7 @@
 FROM public.ecr.aws/docker/library/python:3.12-slim-trixie
 
-# Security Hardening: Purge unused essential package to mitigate unfixed Debian trixie CVEs
-# (CVE-2026-13221, CVE-2026-57433, CVE-2026-12087). Safe post-build removal (no reverse dependencies).
+# Remove perl-base: not used by the agent, and it carries unfixed Debian trixie CVEs
+# (CVE-2026-13221, CVE-2026-57433, CVE-2026-12087). Nothing depends on it once installed.
 RUN apt-get remove -y --purge --allow-remove-essential perl-base \
     && rm -rf /var/lib/apt/lists/*
 
@@ -23,21 +23,19 @@ ENV UV_SYSTEM_PYTHON=1 \
 
 RUN useradd -m -u 1000 bedrock_agentcore
 
-# Workspace Installation: Resolves dependency closure from root workspace lockfile (uv.lock).
-# Uses `--frozen` for strict, immutable installation and `--package` to isolate target member requirements.
-# Manifest drift validation (`uv lock --check`) is enforced upstream in CI/CD.
+# Installs exactly what the root uv.lock pins for this member. `uv lock --check` runs in CI,
+# so the image does not re-validate the lockfile.
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-default-groups --package DocPipelineAgent
 
 COPY --chown=bedrock_agentcore:bedrock_agentcore apps/agents/ apps/agents/
 
-# Execution Context: Set root directory to resolve top-level agent imports (`from graph import ...`)
+# Run from the app directory so top-level imports (`from graph import ...`) resolve.
 WORKDIR /app/apps/agents
 
 USER bedrock_agentcore
 
-# AWS Bedrock AgentCore Runtime Service Contract Ports:
-# 8080: HTTP Mode | 8000: MCP Mode | 9000: A2A Mode
+# AgentCore Runtime expects HTTP on 8080 (8000 is MCP, 9000 is A2A).
 EXPOSE 8080
 
 # AgentCore supplies the ADOT provider used by native online evaluations. Langfuse uses
