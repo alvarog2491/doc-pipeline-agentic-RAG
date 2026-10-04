@@ -1,11 +1,11 @@
 # Prompts
 
 Git-versioned source of truth for the agent's Langfuse chat prompts. Edit the YAML files here, not in the
-Langfuse UI — UI edits get overwritten on the next sync (`make sync-prompts`).
+Langfuse UI: UI edits get overwritten on the next sync (`make sync-prompts`).
 
 | File | Node | Variables |
 |---|---|---|
-| `router.yaml` | `classify`: easy / hard / guide + standalone question | – |
+| `router.yaml` | `classify`: easy / hard / guide + standalone question | none |
 | `answer.yaml` | `easy_answer`: one retrieval, streamed cited answer | `question`, `context` |
 | `decompose.yaml` | `decompose` (hard): sub-queries | `question` |
 | `analyze.yaml` | `analyze` (hard): sufficiency check and notes | `question`, `context` |

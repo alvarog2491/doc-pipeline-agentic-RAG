@@ -1,6 +1,6 @@
 # Agent
 
-Python **LangGraph orchestrator** deployed to Amazon Bedrock AgentCore Runtime. The user picks one
+Python LangGraph orchestrator deployed to Amazon Bedrock AgentCore Runtime. The user picks one
 uploaded document (one Bedrock Knowledge Base per PDF); every turn is routed by an LLM router to
 one of three workflows.
 
@@ -48,11 +48,12 @@ graph TD;
 The diagram above is generated from the compiled graph by LangGraph itself (`get_graph().draw_mermaid()`); dotted edges are
 conditional. Refresh it after changing `graph.py` with `uv run --package DocPipelineAgent python graph_diagram.py --write`; a test
 fails when it is stale.
+
 | Route | When | What runs |
 |---|---|---|
-| `easy` | a fact, definition, or small talk | one retrieval (5 passages) → one streamed, cited answer. First token arrives after the router call and one search. |
-| `hard` | needs comparing, combining or reasoning | sub-question decomposition → parallel retrieval → `analyze` cross-check (one gap-filling round at most) → streamed synthesis. |
-| `guide` | a complete step-by-step procedure | overview retrieval → outline → **subagents** (`section_extractor` per section, `prerequisites_checker`) run in parallel via `Send` and sweep the document exhaustively → streamed, ordered, cited guide. |
+| `easy` | a fact, definition, or small talk | one retrieval (5 passages), then one streamed, cited answer. First token arrives after the router call and one search. |
+| `hard` | needs comparing, combining or reasoning | sub-question decomposition, parallel retrieval, an `analyze` cross-check (one gap-filling round at most), then a streamed synthesis. |
+| `guide` | a complete step-by-step procedure | overview retrieval and an outline, then subagents (`section_extractor` per section, `prerequisites_checker`) run in parallel via `Send` and cover the whole document; the result is a streamed, ordered, cited guide. |
 
 Only the final answer is streamed. Everything the client sees (`route`, `progress`, `chunk`, and the final
 `citations`) goes through `events.emit`, so internal model calls never leak into the response. Answers cite
@@ -70,7 +71,7 @@ Response events, in order: `{"route": ...}`, `{"progress": ...}`*, `{"chunk": ..
 | Path | Description |
 |---|---|
 | `main.py` | AgentCore entrypoint: validates the payload, streams graph events, records Langfuse metadata (`route`, retrieved excerpts, citations) and feedback scores. |
-| `graph.py` | `build_agent` — wires the nodes above into a `StateGraph` with an in-memory checkpointer. |
+| `graph.py` | `build_agent`: wires the nodes above into a `StateGraph` with an in-memory checkpointer. |
 | `graph_diagram.py` | Draws the compiled graph with LangGraph's own `draw_mermaid()` and keeps the diagram above in sync (`--write`). |
 | `router.py`, `easy.py`, `hard.py`, `guide.py` | The nodes of each workflow. |
 | `state.py` | Graph state and the Pydantic schemas for structured model outputs. |

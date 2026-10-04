@@ -1,9 +1,10 @@
-# `apps/ingestion/` — any PDF → Textract → Bedrock built-in chunking → one Knowledge Base per PDF
+# Ingestion
 
-Upload a PDF to `s3://<documents-bucket>/uploads/` and the pipeline does the rest. The frontend does this for you: **Upload PDF**
+Turns each PDF uploaded to `s3://<documents-bucket>/uploads/` into its own Bedrock Knowledge Base, using Textract
+for extraction and Bedrock's built-in chunking. The frontend does this for you: **Upload PDF**
 asks the API for a presigned S3 POST (`POST /v1/documents/upload`, PDF only, size-limited, chunking choice signed in) and the
 browser sends the file straight to S3, so it never passes through CloudFront, the load balancer or the API. No PDF lives in this repository.
-**Chunking and embedding are done by Amazon Bedrock itself** (Knowledge Base `SEMANTIC` chunking + Titan embeddings);
+Chunking and embedding are done by Amazon Bedrock (Knowledge Base `SEMANTIC` chunking + Titan embeddings);
 this code only stages Textract's output for it.
 
 ```
@@ -11,7 +12,7 @@ S3 ObjectCreated  uploads/*.pdf ─► start_extraction ─► Textract (LAYOUT 
                                                             │ completion (SNS)
                                                             ▼
                                                      process_result
-   parse layout blocks → per-page Markdown + metadata sidecars in s3://<docs>/kb-input/<doc_id>/
+   parse layout blocks -> per-page Markdown + metadata sidecars in s3://<docs>/kb-input/<doc_id>/
    ─► S3 Vectors index + Bedrock Knowledge Base (one per PDF, S3 data source, SEMANTIC chunking)
    ─► StartIngestionJob (Bedrock chunks, embeds, stores)      registry: INDEXING
                                     ▲ EventBridge, every minute
@@ -24,14 +25,14 @@ S3 ObjectRemoved  uploads/*.pdf ─► on_delete ─► deletes the KB, its vect
 |---|---|
 | `handlers.py` | The four Lambda entrypoints (`start_extraction`, `process_result`, `check_ingestion`, `on_delete`) and document-id derivation |
 | `chunking_options.py` | Chooses Bedrock's chunking strategy per upload and validates it |
-| `elements.py` | Textract blocks → ordered elements (headers/footers dropped, tables → Markdown) |
-| `pages.py` | Elements → one Markdown document per page (headings as `#`, tables as Markdown tables) |
+| `elements.py` | Textract blocks to ordered elements (headers/footers dropped, tables as Markdown) |
+| `pages.py` | Elements to one Markdown document per page (headings as `#`, tables as Markdown tables) |
 | `knowledge_base.py` | Idempotent S3 Vectors index + KB + S3 data source; stages pages; starts and inspects the ingestion job; deletion |
-| `registry.py` | DynamoDB `doc_id` registry (`PROCESSING` → `INDEXING` → `READY` / `FAILED`) behind `GET /v1/knowledge-bases` |
+| `registry.py` | DynamoDB `doc_id` registry (`PROCESSING`, `INDEXING`, then `READY` or `FAILED`) behind `GET /v1/knowledge-bases` |
 
-## Works with any PDF
+## Supported PDFs
 
-Nothing assumes what the PDF is about, its language, or how it is laid out:
+The pipeline makes no assumptions about a PDF's subject, language or layout:
 
 | PDF | How it is handled |
 |---|---|
@@ -67,18 +68,18 @@ are deleted with it).
 
 Design notes:
 
-- **Bedrock chunks and embeds.** The data source uses the built-in semantic chunking strategy
+- Bedrock chunks and embeds. The data source uses the built-in semantic chunking strategy
   (`maxTokens=300`, `bufferSize=1`, `breakpointPercentileThreshold=95`, see `SEMANTIC_CHUNKING`); the Knowledge Base
   embeds with Titan Text v2 (1024-d, cosine). Nothing here computes an embedding or splits text.
-- **One Markdown file per page** keeps every chunk attributable to an exact page, which is what the agent cites. A
+- One Markdown file per page keeps every chunk attributable to an exact page, which is what the agent cites. A
   `.metadata.json` sidecar carries `doc_id`, `source`, `page` and `section`, which Bedrock stores with each chunk.
   Chunks therefore never span a page boundary.
-- **Errors are explicit.** Any failure (Textract, an empty document, an ingestion job that indexed nothing) ends in
+- Any failure (Textract, an empty document, an ingestion job that indexed nothing) ends in
   `FAILED` with the reason in the registry, which `make list-documents` and the API surface.
-- **Everything is idempotent.** The document id is `<filename-slug>-<sha1(key)[:6]>`. Re-uploading a PDF reuses its
+- Ingestion is idempotent. The document id is `<filename-slug>-<sha1(key)[:6]>`. Re-uploading a PDF reuses its
   Knowledge Base, replaces the staged pages and re-syncs; the ingestion job removes vectors of pages that disappeared.
-- **Quota:** each PDF creates a Knowledge Base; Bedrock's default is 100 per account and region.
-- **No dependencies are bundled**: `boto3` comes from the Lambda runtime.
+- Quota: each PDF creates a Knowledge Base; Bedrock's default is 100 per account and region.
+- No dependencies are bundled: `boto3` comes from the Lambda runtime.
 
 ```bash
 cd apps/ingestion && uv run --package DocPipelineIngestion python -m pytest -q

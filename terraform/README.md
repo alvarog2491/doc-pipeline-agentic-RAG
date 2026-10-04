@@ -25,7 +25,7 @@ envs/           <env>.tfvars and how remote state is selected
 ## Environments
 
 Defined in [`config.tf`](config.tf): `dev` (disposable, API scaled to zero), `prod` (retains state, immutable image
-tags, **release-gated**), `staging` (spread from `prod`, disposable, applied directly) and `pr-<n>` (inherits `dev`).
+tags, release-gated), `staging` (spread from `prod`, disposable, applied directly) and `pr-<n>` (inherits `dev`).
 
 In a release-gated environment the AgentCore runtime image and the `control` endpoint version are `ignore_changes`:
 [`agentcore-ab-release-gate`](https://github.com/alvarog2491/agentcore-ab-release-gate) owns promotion after the first

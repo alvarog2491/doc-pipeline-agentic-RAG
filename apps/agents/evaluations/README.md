@@ -1,10 +1,10 @@
 # Evaluations
 
-Langfuse datasets and experiments for the deployed orchestrator. **No score uses an LLM as a judge**:
+Langfuse datasets and experiments for the deployed orchestrator. No score uses an LLM as a judge:
 every metric is computed from the run itself (route, retrieved pages, citations, text, timings), so
 evaluations cost nothing beyond the agent invocations they trigger, and results are reproducible.
 
-## What is evaluated, and why these metrics
+## Metrics
 
 | Concern | Score | How it is computed |
 |---|---|---|
@@ -12,10 +12,10 @@ evaluations cost nothing beyond the agent invocations they trigger, and results 
 | Retrieval | `retrieval_recall`, `retrieval_mrr` | pages of the retrieved excerpts (runtime diagnostics) vs `expected_pages`; MRR is informational |
 | Citations | `citation_presence`, `citation_validity`, `citation_accuracy` | `[[n]]` markers exist; each resolves to a retrieved excerpt; resolved pages are the expected ones. On unanswerable items any citation is a failure |
 | Faithfulness | `keyfact_recall`, `no_forbidden_claims` | normalised phrase match (tolerant to `40 °C` / `40 degrees Celsius`) for required facts; forbidden phrases must not appear |
-| Abstention | `abstention_correct` | unanswerable question → the answer says the document does not cover it; answerable → it does not refuse |
+| Abstention | `abstention_correct` | for an unanswerable question the answer says the document does not cover it; for an answerable one it does not refuse |
 | Guides | `guide_step_coverage`, `guide_order_validity`, `guide_numbering` | required step keywords are present, appear in order, and the numbered list is consecutive |
-| Orchestration | `subagent_use`, `tool_budget` | guide route ran ≥ `min_sections` subagent sections and no other route delegates; retrievals within the route's budget (easy = exactly one) |
-| Responsiveness | `ttft_within_budget` (gated), `ttft_ms`, `latency_ms` (informational) | client-side time to first streamed token vs a per-route budget — the "feels instant" contract |
+| Orchestration | `subagent_use`, `tool_budget` | guide route ran at least `min_sections` subagent sections and no other route delegates; retrievals within the route's budget (easy = exactly one) |
+| Responsiveness | `ttft_within_budget` (gated), `ttft_ms`, `latency_ms` (informational) | client-side time to first streamed token vs a per-route budget |
 | Shape | `answer_well_formed` | non-empty and below 8,000 characters |
 
 Each route has its own dataset and thresholds (`experiments/run_*_experiment.py`); a mean below its threshold
@@ -24,8 +24,8 @@ exits non-zero with a `RegressionError`.
 ## The evaluation document
 
 Datasets are written against a small synthetic handbook (`fixture/handbook.json`, six pages), rendered to a PDF
-at run time by `fixture/pdf_builder.py` — **no PDF is committed**. `fixture/document.py` uploads it to
-`uploads/eval-handbook.pdf`, so the experiment exercises the real S3 → Textract → chunking → Knowledge Base
+at run time by `fixture/pdf_builder.py`, so no PDF is committed. `fixture/document.py` uploads it to
+`uploads/eval-handbook.pdf`, so the experiment exercises the real S3, Textract, chunking and Knowledge Base
 path, then waits for the registry entry to become `READY`. Set `EVAL_KNOWLEDGE_BASE_ID` to skip that step
 (CI does: `docpipe eval prepare` prints the id).
 

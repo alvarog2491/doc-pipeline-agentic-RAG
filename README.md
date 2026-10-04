@@ -2,14 +2,12 @@
 
 <h1>Doc Pipeline Agentic RAG</h1>
 
-<p><strong>Upload a PDF. Ask it anything. Get streamed, cited answers.</strong></p>
-
 <p>
-A generic document-QA system for any PDF. Upload one from the UI (or drop it into S3) and a pipeline extracts its
+Question answering over PDFs you upload. Upload one from the UI (or drop it into S3) and a pipeline extracts its
 structure with Amazon Textract, then a dedicated Bedrock Knowledge Base (S3 Vectors) chunks and embeds it with
-Bedrock's built-in ingestion — semantic chunking by default, other strategies per upload. Pick the document in the UI
+Bedrock's built-in ingestion (semantic chunking by default, other strategies per upload). Pick the document in the UI
 and a LangGraph orchestrator routes each question to a quick lookup, a multi-step reasoning workflow, or an exhaustive
-step-by-step guide — streaming the answer to you as it is written.
+step-by-step guide, and streams the answer as it is written.
 </p>
 
 <p>
@@ -56,9 +54,9 @@ Every turn is classified by an LLM router (`route` + a standalone rewrite of the
 
 | Route | Workflow |
 |---|---|
-| **easy** | one retrieval → one streamed, cited answer |
-| **hard** | decompose → parallel retrieval → cross-check for gaps (one more round at most) → streamed synthesis |
-| **guide** | outline the procedure → **subagents** extract each section and the prerequisites in parallel → streamed, numbered, cited guide |
+| **easy** | one retrieval, then one streamed, cited answer |
+| **hard** | decompose, retrieve in parallel, cross-check for gaps (one more round at most), stream the synthesis |
+| **guide** | outline the procedure, then subagents extract each section and the prerequisites in parallel; the result is a streamed, numbered, cited guide |
 
 See [apps/agents/README.md](apps/agents/README.md).
 
@@ -66,15 +64,15 @@ See [apps/agents/README.md](apps/agents/README.md).
 
 `POST /v1/chat/stream` answers with Server-Sent Events (`route`, `progress`, `delta`, `citations`, `completed`),
 flushed as the agent emits them, so the first words appear while the rest is still being written. Answers cite
-excerpts as `[[n]]`, rendered as links that open the exact PDF page in a side panel (short-lived presigned URLs —
+excerpts as `[[n]]`, rendered as links that open the exact PDF page in a side panel (short-lived presigned URLs;
 documents are private).
 
 ### Uploading documents
 
 Click **Upload PDF** in the header, optionally choose how the document is split, and pick a file. The browser gets a
-presigned S3 POST from `POST /v1/documents/upload` and sends the PDF **straight to S3** (with a progress bar), so it never
+presigned S3 POST from `POST /v1/documents/upload` and sends the PDF straight to S3 (with a progress bar), so it never
 passes through CloudFront, the load balancer or the API. The document then shows in the dropdown as
-`(extracting…)` → `(indexing…)` and becomes selectable when `READY` (seconds for a short PDF; large ones take longer, and
+`(extracting…)`, then `(indexing…)`, and becomes selectable when `READY` (seconds for a short PDF; large ones take longer, and
 Bedrock's ingestion job is observed by a scheduled Lambda rather than blocking one).
 
 | Chunking | Best for |
@@ -91,11 +89,11 @@ design, so anyone who can reach it can upload; keep it private or add an upload 
 
 ## Prerequisites
 
-- **Node.js** ≥ 22 and **pnpm** ≥ 9
-- **Python 3.12+** and [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- **Terraform** ≥ 1.10 and **Docker**
-- **AWS CLI** configured with credentials that have Bedrock, AgentCore, Textract and S3 Vectors access, in a region
-  where those services (and S3 Vectors) are available — `eu-central-1` by default
+- Node.js 22+ and pnpm 9+
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- Terraform 1.10+ and Docker
+- AWS CLI configured with credentials that have Bedrock, AgentCore, Textract and S3 Vectors access, in a region
+  where those services (and S3 Vectors) are available (`eu-central-1` by default)
 
 ## Getting Started
 
@@ -105,7 +103,7 @@ uv sync --all-packages      # every Python app into the shared ./.venv
 make tf-test                # validate the infrastructure code, no AWS needed
 ```
 
-There is **no `.env` to fill in.** `make compose-up` and `make run-agent` resolve everything at launch — AWS
+There is no `.env` to fill in. `make compose-up` and `make run-agent` resolve everything at launch: AWS
 credentials from your active profile, config from [`terraform/defaults.json`](terraform/defaults.json) (which
 Terraform reads too), and table / bucket / gateway names from Terraform outputs. A `.env` is still honoured as an
 optional personal override.
@@ -145,14 +143,14 @@ make upload-document PDF=deck.pdf CHUNKING=none   # semantic (default) | hierarc
 make list-documents
 ```
 
-The `cloudfront_domain` output (`https://d….cloudfront.net`) serves **the API only**: `/` returns 404 by design, while
+The `cloudfront_domain` output (`https://d….cloudfront.net`) serves the API only: `/` returns 404 by design, while
 `/health`, `/docs` and `/v1/…` work. The frontend is run locally (above) or hosted separately (see *Deploying*). During a
 redeploy the dev API can answer 503 for a minute while ECS swaps tasks. `make dev-destroy` removes everything in dev except
 the Langfuse credentials and the state bucket.
 
 Or run everything locally against the deployed dev data with `make compose-up` (frontend on
 [http://localhost:3000](http://localhost:3000)). Each PDF creates a Knowledge Base (Bedrock's default quota is 100 per
-account and region — request an increase for large corpora). Deleting the object from `uploads/` removes its
+account and region; request an increase for large corpora). Deleting the object from `uploads/` removes its
 Knowledge Base, vector index, staged pages and registry entry.
 
 ## Verify
@@ -171,7 +169,7 @@ uv run --package doc-pipeline-api python -m pytest -q scripts/tests
 
 ## Evaluations
 
-**No score uses an LLM as a judge**, so evaluating costs only the agent invocations. Datasets are written against a
+No score uses an LLM as a judge, so evaluating costs only the agent invocations. Datasets are written against a
 small synthetic handbook that is rendered to a PDF at run time (no committed binary) and ingested through the real
 pipeline. Scores are computed from the run itself: `route_accuracy`, `retrieval_recall`, `citation_validity`,
 `keyfact_recall`, `abstention_correct`, `guide_step_coverage` / `guide_order_validity`, `subagent_use`,
@@ -194,7 +192,7 @@ Manual deployments are allowed only for `dev`. Staging and production are deploy
 - **`cd-production.yml`** (push to main): applies infrastructure with Terraform, then
   [`alvarog2491/agentcore-ab-release-gate`](https://github.com/alvarog2491/agentcore-ab-release-gate) A/B tests the new
   agent image against the current `control` version on live Gateway traffic. Both variants are scored by the
-  **online evaluators** Terraform created (`ErrorFree`, `LatencyBudget`, `GroundedRetrieval`, `RetrievalBudget` —
+  online evaluators Terraform created (`ErrorFree`, `LatencyBudget`, `GroundedRetrieval`, `RetrievalBudget`:
   deterministic Lambda checks over the session's OpenTelemetry spans, no LLM judge). The candidate is promoted only if
   every quality gate passes; otherwise the control version keeps serving. The first deployment has nothing to compare
   against and is applied directly.
@@ -204,7 +202,7 @@ Manual deployments are allowed only for `dev`. Staging and production are deploy
 
 The workflows need, per GitHub Environment (`staging`, `production`): the variable `AWS_DEPLOY_ROLE_ARN` (an OIDC role that
 can run Terraform in that account), plus the repository/environment variables `AWS_REGION`, and optionally
-`LANGFUSE_BASE_URL` and `FRONTEND_ORIGIN` (the hosted frontend's origin, allowed by the API's CORS **and** by the documents
+`LANGFUSE_BASE_URL` and `FRONTEND_ORIGIN` (the hosted frontend's origin, allowed by the API's CORS and by the documents
 bucket for browser uploads). The Langfuse keys for staging experiments are the secrets `LANGFUSE_PUBLIC_KEY` /
 `LANGFUSE_SECRET_KEY`. The first production deploy is a manual dispatch (the agent image must exist before the runtime is
 created). Without this configuration `cd-production.yml` fails on every push to `main`.

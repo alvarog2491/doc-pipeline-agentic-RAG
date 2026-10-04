@@ -59,22 +59,22 @@ Staging and production infrastructure is applied by the workflows through `ci/tf
 
 ## Conventions
 
-- **Two kinds of Python here, and the split is dependencies.** `pipeline_tools/` is one package behind one entry
+- There are two kinds of Python here, split by dependencies. `pipeline_tools/` is one package behind one entry
   point, resolved once from `docpipe.py`'s inline metadata. `prompts/sync_prompts.py` stays separate because it needs
-  langfuse, and a deploy has no business installing it - it declares its own PEP 723 block and the CLI runs it as a
+  langfuse, and a deploy should not install it, so it declares its own PEP 723 block and the CLI runs it as a
   subprocess.
-- **Nothing spells a resource name out by hand.** `config.py` derives every repository, state key and label from
+- No resource name is written out by hand. `config.py` derives every repository, state key and label from
   `ENV`; everything else comes from Terraform outputs.
-- **Configuration arrives as environment variables** (`ENV`, `AWS_REGION`, `AWS_PROFILE`, `GATEWAY`,
+- Configuration arrives as environment variables (`ENV`, `AWS_REGION`, `AWS_PROFILE`, `GATEWAY`,
   `TF_STATE_BUCKET`, ...), which the Makefile exports and the workflows set in an `env:` block. Command-line arguments
-  are for genuine inputs - a PDF path.
-- **Logging goes to stderr** (`info`, `Stages`, `Failure`), so a command can return a value on stdout for its caller to
+  are for real inputs such as a PDF path.
+- Logging goes to stderr (`info`, `Stages`, `Failure`), so a command can return a value on stdout for its caller to
   capture. `deploy outputs` is appended straight to `$GITHUB_OUTPUT`.
-- **Failures are `Failure`, not tracebacks.** `raise die("...")` prints `ERROR: <message>` and exits 1.
-- **Subprocesses take a list argv**, never a shell string, so a value carrying a space or a `$` is an argument rather
+- Failures raise `Failure`, not tracebacks. `raise die("...")` prints `ERROR: <message>` and exits 1.
+- Subprocesses take a list argv, never a shell string, so a value carrying a space or a `$` is an argument rather
   than a parse.
-- **Credentials are read, never written.** The Langfuse keys are bootstrapped once per environment by hand (README
-  "First-time bootstrap"), so nothing here - and no `terraform destroy` - can create, rotate or delete them.
-- **Prod and staging are CI/CD only.** Anything that mutates infrastructure by hand calls `Context.refuse_managed`.
+- Credentials are read, never written. The Langfuse keys are bootstrapped once per environment by hand (README
+  "First-time bootstrap"), so nothing here, and no `terraform destroy`, can create, rotate or delete them.
+- Prod and staging are CI/CD only. Anything that mutates infrastructure by hand calls `Context.refuse_managed`.
   Staging is deployed by `.github/workflows/cd-staging.yml` on a pull request, production by
   `.github/workflows/cd-production.yml` on a push to main.
